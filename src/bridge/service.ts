@@ -71,6 +71,7 @@ export class WechatBridgeService {
     };
     if (this.queue.enqueue(event)) {
       this.options.logger.info({ eventId, target }, "queued inbound WeChat message");
+      void this.options.commands.showTyping(target);
       await this.watchdog.tick();
     }
   }
@@ -80,7 +81,10 @@ export class WechatBridgeService {
     if (reservation.state === "blocked") return { found: false, completed: false, blockedBy: reservation.blockedBy };
     if (!reservation.event) return { found: false, completed: false };
     if (reservation.state === "completed") return { found: true, completed: true, event: reservation.event };
-    if (reservation.state === "reserved") this.queue.markDelivered(eventId);
+    if (reservation.state === "reserved") {
+      this.queue.markDelivered(eventId);
+      void this.options.commands.showTyping(reservation.event.target);
+    }
     return { found: true, completed: false, event: reservation.event, deliveryAttempt: this.queue.getDeliveryAttempt(eventId) };
   }
 
