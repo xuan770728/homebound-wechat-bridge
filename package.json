@@ -1,0 +1,33 @@
+{
+  "name": "homebound-wechat-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloud bridge between WeChat ClawBot and ChatGPT MCP Events",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "node dist/src/main.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@fastify/helmet": "13.1.1",
+    "@fastify/rate-limit": "11.2.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "fastify": "5.12.1",
+    "ipaddr.js": "^2.5.0",
+    "pino": "10.3.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
