@@ -11,10 +11,10 @@ export class QrLoginService {
   constructor(private readonly config: Config, private readonly client: ProtocolClient, private readonly onConfirmed: (credential: Credential) => Promise<void>) {}
   async start(): Promise<{ sessionId: string; qrcode: string; image: string; expiresAt: string }> {
     const qr = await this.client.getQrCode();
-    // The upstream image field currently points to an HTML interstitial rather
-    // than directly to an image. Generate the scannable image from the opaque
-    // QR payload so browsers never need to load that cross-origin URL.
-    const image = await QRCode.toDataURL(qr.qrcode, { errorCorrectionLevel: "M", margin: 2, width: 320 });
+    // qrcode_img_content is the WeChat Lite App login URL that must be encoded
+    // in the visible QR. The separate qrcode value is only the opaque token
+    // used by get_qrcode_status while polling the login session.
+    const image = await QRCode.toDataURL(qr.qrcode_img_content, { errorCorrectionLevel: "M", margin: 2, width: 320 });
     const id = crypto.randomUUID();
     this.sessions.set(id, { id, qrcode: qr.qrcode, image, status: "wait", startedAt: Date.now(), baseUrl: this.config.weixinBaseUrl });
     return { sessionId: id, qrcode: qr.qrcode, image, expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() };
