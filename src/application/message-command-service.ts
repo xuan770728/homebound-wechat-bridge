@@ -28,6 +28,20 @@ export class MessageCommandService {
     try { return await run; } finally { this.locks.delete(keyHash); }
   }
 
+  async showTyping(targetAlias: string): Promise<boolean> {
+    let target: ReturnType<TargetRegistry["resolve"]>;
+    try { target = this.options.targets.resolve(targetAlias); } catch { return false; }
+    const credential = this.options.getCredential();
+    if (!credential) return false;
+    return this.options.client.showTyping({
+      baseUrl: credential.baseUrl,
+      token: credential.botToken,
+      toUserId: target.userId,
+      contextToken: target.contextToken,
+      timeoutMs: 5000,
+    });
+  }
+
   private validateInput(principal: Principal, input: { target: string; text: string; idempotencyKey: string }): void {
     if (!principal.scopes.has("mcp:send")) throw new GatewayError("FORBIDDEN", "mcp:send scope is required", 403);
     if (!principal.targets.has("*") && !principal.targets.has(input.target)) throw new GatewayError("TARGET_NOT_ALLOWED", "target is not authorized", 403);
@@ -50,13 +64,18 @@ export class MessageCommandService {
     try {
       this.options.idempotency.put({ ...recordBase, status: "IN_PROGRESS" });
       const messageId = `wechat-personal-gateway-${crypto.randomUUID()}`;
-      await this.options.queue.enqueue(async () => {
-        await this.options.client.sendText({ baseUrl: credential.baseUrl, token: credential.botToken, message: buildTextMessage({ toUserId: target.userId, text: input.text, contextToken: target.contextToken, clientId: messageId }), timeoutMs: this.options.config.sendTimeoutMs });
-      });
-      this.options.idempotency.put({ ...recordBase, status: "SENT", messageId, updatedAt: new Date().toISOString() });
+      const receipt = await this.options.queue.enqueue(async () => this.options.client.sendText({ baseUrl: credential.baseUrl, token: credential.botToken, message: buildTextMessage({ toUserId: target.userId, text: input.text, contextToken: target.contextToken, clientId: messageId }), timeoutMs: this.options.config.sendTimeoutMs }));
+      if (!receipt.confirmed) {
+        const errorCode = "DELIVERY_UNCONFIRMED";
+        this.options.idempotency.put({ ...recordBase, status: "UNKNOWN", errorCode, updatedAt: new Date().toISOString() });
+        this.options.logger.warn({ requestId, principalId: principal.id, target: input.target, result: "UNKNOWN", errorCode }, "message accepted without delivery receipt");
+        return { requestId, target: input.target, status: "UNKNOWN", errorCode };
+      }
+      const confirmedMessageId = receipt.messageId ?? messageId;
+      this.options.idempotency.put({ ...recordBase, status: "SENT", messageId: confirmedMessageId, updatedAt: new Date().toISOString() });
       this.options.status.outbound();
       this.options.logger.info({ requestId, principalId: principal.id, target: input.target, result: "SENT" }, "message sent");
-      return { requestId, target: input.target, status: "SENT", messageId };
+      return { requestId, target: input.target, status: "SENT", messageId: confirmedMessageId };
     } catch (error) {
       const unknown = error instanceof UpstreamError && (error.kind === "timeout" || error.kind === "network");
       const status = unknown ? "UNKNOWN" : "FAILED";
