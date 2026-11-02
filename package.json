@@ -5,7 +5,9 @@
   "description": "Cloud bridge between WeChat ClawBot and ChatGPT MCP Events",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
     "start": "node dist/src/main.js",
@@ -22,10 +24,12 @@
     "fastify": "5.12.1",
     "ipaddr.js": "^2.5.0",
     "pino": "10.3.1",
+    "qrcode": "^1.5.4",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/qrcode": "^1.5.5",
     "tsx": "^4.19.0",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
