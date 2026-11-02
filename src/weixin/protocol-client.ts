@@ -8,6 +8,7 @@ export class UpstreamError extends Error {
 }
 
 export type ProtocolClientOptions = { baseUrl?: string; token?: string; abortSignal?: AbortSignal };
+export type SendReceipt = { confirmed: boolean; messageId?: string };
 
 export class ProtocolClient {
   constructor(private readonly config: Config) {}
@@ -85,9 +86,33 @@ export class ProtocolClient {
     }
   }
 
-  async sendText(options: { baseUrl: string; token: string; message: WeixinMessage; timeoutMs?: number }): Promise<void> {
-    const response = await this.post<{ ret?: number; errmsg?: string }>("ilink/bot/sendmessage", { msg: options.message, base_info: this.baseInfo() }, options);
-    if (response.ret !== undefined && response.ret !== 0) throw new UpstreamError("protocol", "upstream rejected message", response.ret);
+  async sendText(options: { baseUrl: string; token: string; message: WeixinMessage; timeoutMs?: number }): Promise<SendReceipt> {
+    const response = await this.post<{ ret?: number; errcode?: number; errmsg?: string; message_id?: unknown; msg_id?: unknown; msg?: { message_id?: unknown } }>("ilink/bot/sendmessage", { msg: options.message, base_info: this.baseInfo() }, options);
+    const code = response.ret ?? response.errcode;
+    if (code !== undefined && code !== 0) throw new UpstreamError("protocol", "upstream rejected message", code);
+    const rawMessageId = response.message_id ?? response.msg_id ?? response.msg?.message_id;
+    const messageId = typeof rawMessageId === "string" || typeof rawMessageId === "number" ? String(rawMessageId) : undefined;
+    return { confirmed: Boolean(messageId), ...(messageId ? { messageId } : {}) };
+  }
+
+  async showTyping(options: { baseUrl: string; token: string; toUserId: string; contextToken: string; timeoutMs?: number }): Promise<boolean> {
+    try {
+      const config = await this.post<{ ret?: number; errcode?: number; typing_ticket?: string }>("ilink/bot/getconfig", {
+        to_user_id: options.toUserId,
+        context_token: options.contextToken,
+        base_info: this.baseInfo(),
+      }, options);
+      if ((config.ret !== undefined && config.ret !== 0) || (config.errcode !== undefined && config.errcode !== 0) || !config.typing_ticket) return false;
+      const response = await this.post<{ ret?: number; errcode?: number }>("ilink/bot/sendtyping", {
+        to_user_id: options.toUserId,
+        typing_ticket: config.typing_ticket,
+        context_token: options.contextToken,
+        base_info: this.baseInfo(),
+      }, options);
+      return (response.ret === undefined || response.ret === 0) && (response.errcode === undefined || response.errcode === 0);
+    } catch {
+      return false;
+    }
   }
 
   async notifyStart(options: { baseUrl: string; token: string }): Promise<void> {
