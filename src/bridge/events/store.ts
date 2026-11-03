@@ -19,14 +19,18 @@ export class EventsStore {
 
   constructor(
     private readonly file: string,
-    private readonly remote?: { url: string; token: string },
+    private readonly remote?: { url: string; token: string; accessToken?: string },
   ) {}
 
   async load(): Promise<void> {
     if (this.remote) {
       try {
         const response = await fetch(this.remote.url, {
-          headers: { authorization: `Bearer ${this.remote.token}`, accept: "application/json" },
+          headers: {
+            authorization: `Bearer ${this.remote.token}`,
+            accept: "application/json",
+            ...(this.remote.accessToken ? { "OAI-Sites-Authorization": `Bearer ${this.remote.accessToken}` } : {}),
+          },
         });
         if (!response.ok) throw new Error(`subscription store returned ${response.status}`);
         const body = await response.json() as { subscriptions?: unknown };
@@ -76,7 +80,11 @@ export class EventsStore {
     if (this.remote) {
       const response = await fetch(this.remote.url, {
         method: "PUT",
-        headers: { authorization: `Bearer ${this.remote.token}`, "content-type": "application/json" },
+        headers: {
+          authorization: `Bearer ${this.remote.token}`,
+          "content-type": "application/json",
+          ...(this.remote.accessToken ? { "OAI-Sites-Authorization": `Bearer ${this.remote.accessToken}` } : {}),
+        },
         body: JSON.stringify({ subscriptions: this.all() }),
       });
       if (!response.ok) throw new Error(`subscription store returned ${response.status}`);
