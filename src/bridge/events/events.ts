@@ -153,6 +153,11 @@ function signedHeaders(subscription: Subscription, id: string, body: string): Re
 }
 
 export class EventsService {
+  activeSubscriptionCount(name: Subscription["name"], source: Subscription["arguments"]["source"]): number {
+    const now = new Date().toISOString();
+    return this.store.all().filter((item) => item.active && item.refreshBefore > now && item.name === name && item.arguments.source === source).length;
+  }
+
   private readonly verifiedCallbacks = new Map<string, number>();
   private readonly acceptedDeliveries = new Set<string>();
 
