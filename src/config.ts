@@ -32,6 +32,7 @@ const envSchema = z.object({
   PHONE_BRIDGE_TOKEN: z.string().default(""),
   PHONE_REPLY_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(45000),
   SUBSCRIPTION_STORE_URL: z.string().url().optional(),
+  SUBSCRIPTION_STORE_ACCESS_TOKEN: z.string().default(""),
   TRUSTED_HOSTS: z.string().default("127.0.0.1,localhost"),
 });
 
@@ -66,6 +67,7 @@ export type Config = {
   phoneBridgeToken?: string;
   phoneReplyTimeoutMs: number;
   subscriptionStoreUrl?: string;
+  subscriptionStoreAccessToken?: string;
   trustedHosts: string[];
 };
 
@@ -85,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const encryptionKey = parsed.WEIXIN_ENCRYPTION_KEY.trim() || undefined;
   const devApiKey = parsed.MCP_DEV_API_KEY.trim() || undefined;
   const phoneBridgeToken = parsed.PHONE_BRIDGE_TOKEN.trim() || undefined;
+  const subscriptionStoreAccessToken = parsed.SUBSCRIPTION_STORE_ACCESS_TOKEN.trim() || undefined;
   const config: Config = {
     nodeEnv: parsed.NODE_ENV,
     httpPort: parsed.HTTP_PORT,
@@ -116,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(phoneBridgeToken ? { phoneBridgeToken } : {}),
     phoneReplyTimeoutMs: parsed.PHONE_REPLY_TIMEOUT_MS,
     ...(parsed.SUBSCRIPTION_STORE_URL ? { subscriptionStoreUrl: parsed.SUBSCRIPTION_STORE_URL } : {}),
+    ...(subscriptionStoreAccessToken ? { subscriptionStoreAccessToken } : {}),
     trustedHosts: parsed.TRUSTED_HOSTS.split(",").map((v) => v.trim()).filter(Boolean),
   };
   validateConfig(config);
