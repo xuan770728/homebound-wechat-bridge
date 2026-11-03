@@ -31,6 +31,7 @@ const envSchema = z.object({
   IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(86400000),
   PHONE_BRIDGE_TOKEN: z.string().default(""),
   PHONE_REPLY_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(45000),
+  SUBSCRIPTION_STORE_URL: z.string().url().optional(),
   TRUSTED_HOSTS: z.string().default("127.0.0.1,localhost"),
 });
 
@@ -64,6 +65,7 @@ export type Config = {
   idempotencyTtlMs: number;
   phoneBridgeToken?: string;
   phoneReplyTimeoutMs: number;
+  subscriptionStoreUrl?: string;
   trustedHosts: string[];
 };
 
@@ -113,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     idempotencyTtlMs: parsed.IDEMPOTENCY_TTL_MS,
     ...(phoneBridgeToken ? { phoneBridgeToken } : {}),
     phoneReplyTimeoutMs: parsed.PHONE_REPLY_TIMEOUT_MS,
+    ...(parsed.SUBSCRIPTION_STORE_URL ? { subscriptionStoreUrl: parsed.SUBSCRIPTION_STORE_URL } : {}),
     trustedHosts: parsed.TRUSTED_HOSTS.split(",").map((v) => v.trim()).filter(Boolean),
   };
   validateConfig(config);
@@ -140,5 +143,8 @@ export function validateConfig(config: Config): void {
   }
   if (config.phoneBridgeToken && config.phoneBridgeToken.length < 32) {
     throw new Error("PHONE_BRIDGE_TOKEN must be at least 32 characters");
+  }
+  if (config.subscriptionStoreUrl && !config.phoneBridgeToken) {
+    throw new Error("SUBSCRIPTION_STORE_URL requires PHONE_BRIDGE_TOKEN");
   }
 }
