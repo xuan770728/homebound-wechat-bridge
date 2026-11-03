@@ -17,19 +17,41 @@ export type Subscription = {
 export class EventsStore {
   private subscriptions = new Map<string, Subscription>();
 
-  constructor(private readonly file: string) {}
+  constructor(
+    private readonly file: string,
+    private readonly remote?: { url: string; token: string },
+  ) {}
 
   async load(): Promise<void> {
-    try {
-      const values = JSON.parse(await readFile(this.file, "utf8")) as Subscription[];
-      const now = new Date().toISOString();
-      for (const value of values) {
-        if (["homebound.weixin.message", "homebound.voice.turn"].includes(value.name) && value.refreshBefore > now) {
-          this.subscriptions.set(value.id, value);
+    if (this.remote) {
+      try {
+        const response = await fetch(this.remote.url, {
+          headers: { authorization: `Bearer ${this.remote.token}`, accept: "application/json" },
+        });
+        if (!response.ok) throw new Error(`subscription store returned ${response.status}`);
+        const body = await response.json() as { subscriptions?: unknown };
+        if (Array.isArray(body.subscriptions)) {
+          this.loadValues(body.subscriptions as Subscription[]);
+          return;
         }
+      } catch {
+        // Fall back to the local copy so a temporary storage outage does not
+        // prevent the bridge from starting.
       }
+    }
+    try {
+      this.loadValues(JSON.parse(await readFile(this.file, "utf8")) as Subscription[]);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  private loadValues(values: Subscription[]): void {
+    const now = new Date().toISOString();
+    for (const value of values) {
+      if (["homebound.weixin.message", "homebound.voice.turn"].includes(value.name) && value.refreshBefore > now) {
+        this.subscriptions.set(value.id, value);
+      }
     }
   }
 
@@ -51,5 +73,13 @@ export class EventsStore {
     const temporary = `${this.file}.tmp`;
     await writeFile(temporary, JSON.stringify(this.all(), null, 2), { mode: 0o600 });
     await rename(temporary, this.file);
+    if (this.remote) {
+      const response = await fetch(this.remote.url, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${this.remote.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ subscriptions: this.all() }),
+      });
+      if (!response.ok) throw new Error(`subscription store returned ${response.status}`);
+    }
   }
 }
