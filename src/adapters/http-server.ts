@@ -56,6 +56,13 @@ export function buildHttpServer(options: { config: Config; logger: AppLogger; ru
     return reply.code(ready ? 200 : 503).send({ status: ready ? "ready" : "not_ready", mcp: config.mcpEnabled, version: "0.1.0" });
   });
 
+  app.get("/phone/v1/status", async (request, reply) => {
+    if (!config.phoneBridgeToken) return reply.code(503).send({ ready: false, error: "PHONE_BRIDGE_DISABLED" });
+    if (!phoneAuthorized(request, config)) return reply.code(401).send({ ready: false, error: "UNAUTHORIZED" });
+    await bridge.ready;
+    const subscriptions = bridge.events.activeSubscriptionCount("homebound.voice.turn", "voice.call");
+    return reply.header("cache-control", "private, no-store").code(subscriptions > 0 ? 200 : 503).send({ ready: subscriptions > 0, subscriptions });
+  });
   app.post<{ Body: {
     type?: string; callId?: string; delegationId?: string; latestUserText?: string;
     userTranscript?: string; assistantTranscript?: string; startedAt?: string;
@@ -79,6 +86,7 @@ export function buildHttpServer(options: { config: Config; logger: AppLogger; ru
       return reply.header("cache-control", "private, no-store").send({ reply: result.reply, eventId: result.eventId });
     } catch (error) {
       if (error instanceof Error && error.message === "VOICE_REPLY_TIMEOUT") return reply.code(504).send({ error: "WORK_REPLY_TIMEOUT" });
+      if (error instanceof Error && error.message === "WORK_EVENT_CHANNEL_OFFLINE") return reply.code(503).send({ error: "WORK_EVENT_CHANNEL_OFFLINE" });
       throw error;
     }
   });
