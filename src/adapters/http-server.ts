@@ -60,7 +60,7 @@ export function buildHttpServer(options: { config: Config; logger: AppLogger; ru
     if (!config.phoneBridgeToken) return reply.code(503).send({ ready: false, error: "PHONE_BRIDGE_DISABLED" });
     if (!phoneAuthorized(request, config)) return reply.code(401).send({ ready: false, error: "UNAUTHORIZED" });
     await bridge.ready;
-    const subscriptions = bridge.events.activeSubscriptionCount("homebound.voice.turn", "voice.call");
+    const subscriptions = bridge.events.activeSubscriptionCount("homebound.weixin.message", "wechat.dm");
     return reply.header("cache-control", "private, no-store").code(subscriptions > 0 ? 200 : 503).send({ ready: subscriptions > 0, subscriptions });
   });
   app.post<{ Body: {
