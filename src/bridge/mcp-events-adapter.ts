@@ -158,7 +158,10 @@ export class McpEventsAdapter {
       const messages = Array.isArray(args.messages) ? args.messages : [];
       if (!eventId || messages.length < 1 || messages.length > 5 || messages.some((message) => typeof message !== "string" || !message.trim() || message.trim().length > 500)) throw new EventsError("eventId and 1 to 5 reply messages are required.", -32602);
       const value = await this.bridge.reply(eventId, messages as string[]);
-      return { content: [{ type: "text", text: `Sent ${value.sentCount} WeChat message(s).` }], structuredContent: value, isError: false };
+      const text = value.route === "voice.call"
+        ? "Returned the spoken reply to the waiting call."
+        : `Sent ${value.sentCount} WeChat message(s).`;
+      return { content: [{ type: "text", text }], structuredContent: value, isError: false };
     }
     if (name === "homebound_read_voice_turn") {
       const eventId = typeof args.bridgeEventId === "string" ? args.bridgeEventId.trim() : "";
