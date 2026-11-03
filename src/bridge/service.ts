@@ -29,7 +29,11 @@ export class WechatBridgeService {
     logger: AppLogger;
   }) {
     const remote = options.config.subscriptionStoreUrl && options.config.phoneBridgeToken
-      ? { url: options.config.subscriptionStoreUrl, token: options.config.phoneBridgeToken }
+      ? {
+          url: options.config.subscriptionStoreUrl,
+          token: options.config.phoneBridgeToken,
+          ...(options.config.subscriptionStoreAccessToken ? { accessToken: options.config.subscriptionStoreAccessToken } : {}),
+        }
       : undefined;
     const store = new EventsStore(path.join(options.config.dataDir, "mcp-event-subscriptions.json"), remote);
     this.ready = store.load();
