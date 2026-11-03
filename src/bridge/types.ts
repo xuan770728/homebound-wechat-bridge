@@ -4,7 +4,7 @@ export type BridgeEvent = {
   kind: "message";
   source: "wechat.dm";
   stream: "conversation";
-  replyRoute: "wechat.dm";
+  replyRoute: "wechat.dm" | "voice.call";
   replyPolicy: "required";
   createdAt: string;
   visibleText: string;
