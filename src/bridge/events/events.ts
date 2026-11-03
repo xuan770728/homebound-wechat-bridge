@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { BridgeEvent } from "../types.js";
+import type { VoiceTurn } from "../voice-turn-service.js";
 import { sameChallenge, sign, signingKey } from "./signatures.js";
 import { EventsStore, type Subscription } from "./store.js";
 import { checkedDestination, postChecked } from "./urlSafety.js";
@@ -49,6 +50,27 @@ export const eventCatalog = [{
     required: ["bridgeEventId", "source", "stream", "replyPolicy", "createdAt"],
     additionalProperties: false,
   },
+}, {
+  name: "homebound.voice.turn",
+  description: "A live private voice-call turn is waiting for the current Work chat to answer.",
+  delivery: ["webhook"],
+  inputSchema: {
+    type: "object",
+    properties: { source: { type: "string", enum: ["voice.call"] } },
+    required: ["source"],
+    additionalProperties: false,
+  },
+  payloadSchema: {
+    type: "object",
+    properties: {
+      bridgeEventId: { type: "string" },
+      source: { type: "string" },
+      callId: { type: "string" },
+      createdAt: { type: "string" },
+    },
+    required: ["bridgeEventId", "source", "callId", "createdAt"],
+    additionalProperties: false,
+  },
 }];
 
 type SubscribeParams = {
@@ -60,8 +82,8 @@ type SubscribeParams = {
 };
 
 type Identity = {
-  name: "homebound.weixin.message";
-  arguments: { source: "wechat.dm" };
+  name: "homebound.weixin.message" | "homebound.voice.turn";
+  arguments: { source: "wechat.dm" | "voice.call" };
   url: string;
 };
 
@@ -74,7 +96,7 @@ function canonicalJson(value: unknown): string {
 }
 
 function parseIdentity(params: SubscribeParams): Identity {
-  if (params.name !== "homebound.weixin.message") {
+  if (params.name !== "homebound.weixin.message" && params.name !== "homebound.voice.turn") {
     throw new EventsError("The event name is not valid.");
   }
   if (params.delivery?.mode !== "webhook" || typeof params.delivery.url !== "string") {
@@ -87,14 +109,17 @@ function parseIdentity(params: SubscribeParams): Identity {
     || typeof args !== "object"
     || Array.isArray(args)
     || Object.keys(args).length !== 1
-    || (args as Record<string, unknown>).source !== "wechat.dm"
+    || !["wechat.dm", "voice.call"].includes(String((args as Record<string, unknown>).source))
   ) {
-    throw new EventsError("The bridge event requires source=wechat.dm.");
+    throw new EventsError("The bridge event source is not valid.");
   }
 
+  const expectedSource = params.name === "homebound.weixin.message" ? "wechat.dm" : "voice.call";
+  if ((args as Record<string, unknown>).source !== expectedSource) throw new EventsError(`The bridge event requires source=${expectedSource}.`);
+
   return {
-    name: "homebound.weixin.message",
-    arguments: { source: "wechat.dm" },
+    name: params.name,
+    arguments: { source: expectedSource },
     url: params.delivery.url,
   };
 }
@@ -295,10 +320,32 @@ export class EventsService {
     return await this.deliver(event, matches);
   }
 
+  async emitVoiceTurnRequested(turn: VoiceTurn) {
+    const event = {
+      eventId: `evt_voice_${createHash("sha256").update(turn.id).digest("hex").slice(0, 32)}`,
+      name: "homebound.voice.turn" as const,
+      timestamp: new Date().toISOString(),
+      data: {
+        bridgeEventId: turn.id,
+        source: "voice.call",
+        callId: turn.callId,
+        createdAt: turn.createdAt,
+      },
+      cursor: null,
+    };
+    const matches = this.store.all().filter(
+      (item) => item.active
+        && item.refreshBefore > new Date().toISOString()
+        && item.name === "homebound.voice.turn"
+        && item.arguments.source === "voice.call",
+    );
+    return await this.deliver(event, matches);
+  }
+
   private async deliver(
     event: {
       eventId: string;
-      name: "homebound.weixin.message";
+      name: "homebound.weixin.message" | "homebound.voice.turn";
       timestamp: string;
       data: Record<string, unknown>;
       cursor: null;

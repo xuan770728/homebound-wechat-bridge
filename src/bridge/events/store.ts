@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 export type Subscription = {
   id: string;
   owner: string;
-  name: "homebound.weixin.message";
-  arguments: { source: "wechat.dm" };
+  name: "homebound.weixin.message" | "homebound.voice.turn";
+  arguments: { source: "wechat.dm" | "voice.call" };
   url: string;
   secret: string;
   previousSecret?: string;
@@ -24,7 +24,7 @@ export class EventsStore {
       const values = JSON.parse(await readFile(this.file, "utf8")) as Subscription[];
       const now = new Date().toISOString();
       for (const value of values) {
-        if (value.name === "homebound.weixin.message" && value.refreshBefore > now) {
+        if (["homebound.weixin.message", "homebound.voice.turn"].includes(value.name) && value.refreshBefore > now) {
           this.subscriptions.set(value.id, value);
         }
       }

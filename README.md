@@ -11,6 +11,8 @@ It uses:
 
 No OpenAI model API key is used. ChatGPT remains the model and conversation surface; this service only transports messages.
 
+The same service also exposes an optional authenticated phone bridge. A live call turn wakes the current Work chat through `homebound.voice.turn`, waits for `homebound_reply_voice_turn`, and returns only the spoken reply to the private call site. Call completion can write a short duration receipt back to WeChat.
+
 ## Flow
 
 1. A private WeChat message reaches ClawBot.
@@ -50,6 +52,8 @@ Open the private setup path configured by `SETUP_PATH_TOKEN`, scan the WeChat QR
 | `MCP_ALLOWED_TARGETS=xuanxuan` | Stable alias for the bound private conversation. |
 | `BOOTSTRAP_ENABLED=true` | Allows first-time target binding. |
 | `TRUSTED_HOSTS=*` | Required behind Render's dynamic host in this single-tenant, secret-path deployment. |
+| `PHONE_BRIDGE_TOKEN` | Separate 32+ character bearer token shared only with the private call Site. |
+| `PHONE_REPLY_TIMEOUT_MS=45000` | Maximum time a live call waits for the Work reply. |
 
 For reliable 24/7 use on Render, attach a persistent disk at `/data` and use a service plan that does not spin down. A free service is suitable only for a smoke test: it can sleep and its filesystem is ephemeral.
 
@@ -58,6 +62,8 @@ For reliable 24/7 use on Render, attach a persistent disk at `/data` and use a s
 - Setup page: `/setup/<SETUP_PATH_TOKEN>`
 - ChatGPT Custom MCP: `/mcp/events/<MCP_EVENTS_PATH_TOKEN>`
 - Health: `/health/live`
+- Phone turn: `/phone/v1/turn`
+- Phone completion receipt: `/phone/v1/complete`
 
 Never post either private URL publicly. Rotate the corresponding token if a URL is exposed.
 

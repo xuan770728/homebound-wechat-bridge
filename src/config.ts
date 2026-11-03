@@ -29,6 +29,8 @@ const envSchema = z.object({
   WEIXIN_SEND_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   WEIXIN_QUEUE_SIZE: z.coerce.number().int().positive().default(32),
   IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(86400000),
+  PHONE_BRIDGE_TOKEN: z.string().default(""),
+  PHONE_REPLY_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(45000),
   TRUSTED_HOSTS: z.string().default("127.0.0.1,localhost"),
 });
 
@@ -60,6 +62,8 @@ export type Config = {
   sendTimeoutMs: number;
   queueSize: number;
   idempotencyTtlMs: number;
+  phoneBridgeToken?: string;
+  phoneReplyTimeoutMs: number;
   trustedHosts: string[];
 };
 
@@ -78,6 +82,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const accessTokens = parseJson<Config["accessTokens"]>(parsed.MCP_ACCESS_TOKENS, {}, "MCP_ACCESS_TOKENS");
   const encryptionKey = parsed.WEIXIN_ENCRYPTION_KEY.trim() || undefined;
   const devApiKey = parsed.MCP_DEV_API_KEY.trim() || undefined;
+  const phoneBridgeToken = parsed.PHONE_BRIDGE_TOKEN.trim() || undefined;
   const config: Config = {
     nodeEnv: parsed.NODE_ENV,
     httpPort: parsed.HTTP_PORT,
@@ -106,6 +111,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sendTimeoutMs: parsed.WEIXIN_SEND_TIMEOUT_MS,
     queueSize: parsed.WEIXIN_QUEUE_SIZE,
     idempotencyTtlMs: parsed.IDEMPOTENCY_TTL_MS,
+    ...(phoneBridgeToken ? { phoneBridgeToken } : {}),
+    phoneReplyTimeoutMs: parsed.PHONE_REPLY_TIMEOUT_MS,
     trustedHosts: parsed.TRUSTED_HOSTS.split(",").map((v) => v.trim()).filter(Boolean),
   };
   validateConfig(config);
@@ -130,5 +137,8 @@ export function validateConfig(config: Config): void {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(target.target)) {
       throw new Error(`invalid target alias: ${target.target}`);
     }
+  }
+  if (config.phoneBridgeToken && config.phoneBridgeToken.length < 32) {
+    throw new Error("PHONE_BRIDGE_TOKEN must be at least 32 characters");
   }
 }

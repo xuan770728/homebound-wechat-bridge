@@ -15,8 +15,24 @@ import { BootstrapDiscovery } from "../application/bootstrap-discovery.js";
 import { WechatBridgeService } from "../bridge/service.js";
 import { McpEventsAdapter } from "../bridge/mcp-events-adapter.js";
 import { setupPage } from "./setup-page.js";
+import type { Principal } from "../types.js";
 
 function requestId(request: { headers: Record<string, string | string[] | undefined> }): string { return typeof request.headers["x-request-id"] === "string" ? request.headers["x-request-id"] : crypto.randomUUID(); }
+
+function phoneAuthorized(request: FastifyRequest, config: Config): boolean {
+  const expected = config.phoneBridgeToken;
+  const authorization = request.headers.authorization;
+  if (!expected || typeof authorization !== "string" || !authorization.startsWith("Bearer ")) return false;
+  const actual = authorization.slice(7);
+  const left = Buffer.from(expected);
+  const right = Buffer.from(actual);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function callDuration(seconds: number): string {
+  const safe = Math.max(0, Math.min(7200, Math.floor(seconds)));
+  return `${Math.floor(safe / 60).toString().padStart(2, "0")}:${(safe % 60).toString().padStart(2, "0")}`;
+}
 
 export function buildHttpServer(options: { config: Config; logger: AppLogger; runtime: AccountRuntime; commands: MessageCommandService; mcp: McpServerAdapter; qr: QrLoginService; bootstrap: BootstrapDiscovery; bridge: WechatBridgeService; eventsMcp: McpEventsAdapter }) {
   const { config, logger, runtime, commands, mcp, qr, bootstrap, bridge, eventsMcp } = options;
@@ -38,6 +54,47 @@ export function buildHttpServer(options: { config: Config; logger: AppLogger; ru
   app.get("/health/ready", async (_request, reply) => {
     const ready = runtime.status.ready();
     return reply.code(ready ? 200 : 503).send({ status: ready ? "ready" : "not_ready", mcp: config.mcpEnabled, version: "0.1.0" });
+  });
+
+  app.post<{ Body: {
+    type?: string; callId?: string; delegationId?: string; latestUserText?: string;
+    userTranscript?: string; assistantTranscript?: string; startedAt?: string;
+  } }>("/phone/v1/turn", async (request, reply) => {
+    if (!config.phoneBridgeToken) return reply.code(503).send({ error: "PHONE_BRIDGE_DISABLED" });
+    if (!phoneAuthorized(request, config)) return reply.code(401).send({ error: "UNAUTHORIZED" });
+    const body = request.body ?? {};
+    const callId = typeof body.callId === "string" ? body.callId.trim() : "";
+    const delegationId = typeof body.delegationId === "string" ? body.delegationId.trim() : "";
+    const latestUserText = typeof body.latestUserText === "string" ? body.latestUserText.trim() : "";
+    if (!callId || !delegationId || !latestUserText || latestUserText.length > 5000) return reply.code(400).send({ error: "INVALID_VOICE_TURN" });
+    try {
+      const result = await bridge.requestVoiceTurn({
+        callId,
+        delegationId,
+        latestUserText,
+        userTranscript: typeof body.userTranscript === "string" ? body.userTranscript.slice(-5000) : "",
+        assistantTranscript: typeof body.assistantTranscript === "string" ? body.assistantTranscript.slice(-5000) : "",
+        ...(typeof body.startedAt === "string" ? { startedAt: body.startedAt } : {}),
+      });
+      return reply.header("cache-control", "private, no-store").send({ reply: result.reply, eventId: result.eventId });
+    } catch (error) {
+      if (error instanceof Error && error.message === "VOICE_REPLY_TIMEOUT") return reply.code(504).send({ error: "WORK_REPLY_TIMEOUT" });
+      throw error;
+    }
+  });
+
+  app.post<{ Body: { callId?: string; seconds?: number; startedAt?: string; endedAt?: string } }>("/phone/v1/complete", async (request, reply) => {
+    if (!config.phoneBridgeToken) return reply.code(503).send({ error: "PHONE_BRIDGE_DISABLED" });
+    if (!phoneAuthorized(request, config)) return reply.code(401).send({ error: "UNAUTHORIZED" });
+    const body = request.body ?? {};
+    const callId = typeof body.callId === "string" ? body.callId.trim() : "";
+    if (!callId) return reply.code(400).send({ error: "INVALID_CALL" });
+    const target = config.allowedTargets[0]!;
+    const note = `☏ 与爸爸通话 ${callDuration(Number(body.seconds) || 0)}`;
+    const principal: Principal = { id: "homebound-phone-bridge", scopes: new Set(["mcp:send"]), targets: new Set([target]), authType: "bearer" };
+    const idempotencyKey = `phone-${crypto.createHash("sha256").update(callId).digest("hex").slice(0, 32)}`;
+    const result = await commands.sendText(principal, requestId(request), { target, text: note, idempotencyKey });
+    return reply.send({ synced: result.status === "SENT", note: result.status === "SENT" ? `微信已显示：${note}` : `${note} · 微信同步待确认` });
   });
 
   app.post(config.mcpPath, async (request, reply) => {

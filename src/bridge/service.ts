@@ -10,12 +10,14 @@ import { EventsStore } from "./events/store.js";
 import { BridgeWakeWatchdog } from "./events/wakeWatchdog.js";
 import { InMemoryEventQueue } from "./queue.js";
 import type { BridgeEvent } from "./types.js";
+import { VoiceTurnService, type VoiceTurn } from "./voice-turn-service.js";
 
 type Inbound = { fromUserId: string; contextToken: string; text: string; receivedAt: string };
 
 export class WechatBridgeService {
   readonly queue = new InMemoryEventQueue();
   readonly events: EventsService;
+  readonly voiceTurns = new VoiceTurnService();
   readonly ready: Promise<void>;
   private readonly watchdog: BridgeWakeWatchdog;
   private readonly timer: NodeJS.Timeout;
@@ -122,6 +124,16 @@ export class WechatBridgeService {
     }
   }
 
+  async requestVoiceTurn(input: Omit<VoiceTurn, "id" | "createdAt">) {
+    const queued = this.voiceTurns.enqueue(input);
+    if (queued.created) await this.events.emitVoiceTurnRequested(queued.turn);
+    const reply = await this.voiceTurns.waitForReply(queued.turn.id, this.options.config.phoneReplyTimeoutMs);
+    return { eventId: queued.turn.id, reply };
+  }
+
+  readVoiceTurn(eventId: string) { return this.voiceTurns.read(eventId); }
+  replyVoiceTurn(eventId: string, reply: string) { return this.voiceTurns.reply(eventId, reply); }
+
   stop(): void { clearInterval(this.timer); }
-  status() { return { queue: this.queue.status(), wake: this.watchdog.status() }; }
+  status() { return { queue: this.queue.status(), voice: this.voiceTurns.status(), wake: this.watchdog.status() }; }
 }
