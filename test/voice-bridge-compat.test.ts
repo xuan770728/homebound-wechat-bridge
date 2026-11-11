@@ -14,9 +14,39 @@ afterEach(() => {
 });
 
 describe("voice turns over the established Work event channel", () => {
+  it("keeps receiving messages while a Work webhook is stalled", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "homebound-inbound-"));
+    dirs.push(dataDir);
+    const service = new WechatBridgeService({
+      config: loadConfig({ NODE_ENV: "test", DATA_DIR: dataDir, MCP_ALLOWED_TARGETS: "xuan" }),
+      commands: { showTyping: vi.fn() } as never,
+      targets: { aliasForUserId: () => "xuan" } as never,
+      logger: { info: vi.fn(), warn: vi.fn() } as never,
+    });
+    services.push(service);
+    await service.ready;
+    let finish!: (value: Awaited<ReturnType<typeof service.events.emitBridgeRequested>>) => void;
+    const emit = vi.spyOn(service.events, "emitBridgeRequested").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await service.onInbound({ fromUserId: "u", contextToken: "c", text: "first", receivedAt: new Date().toISOString() });
+    await service.onInbound({ fromUserId: "u", contextToken: "c", text: "second", receivedAt: new Date().toISOString() });
+    expect(service.queue.status().pending).toBe(2);
+    expect(emit).toHaveBeenCalledTimes(1);
+    finish({ event: { eventId: "test", name: "homebound.weixin.message", timestamp: new Date().toISOString(), data: {}, cursor: null }, subscriptions: 1, deliveries: [{ subscriptionId: "test", accepted: true, status: 200, deduplicated: false }] });
+    await new Promise(resolve => setImmediate(resolve));
+  });
   it("routes the existing WeChat reply tool back to the waiting call", async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "homebound-voice-bridge-"));
     dirs.push(dataDir);
+    fs.writeFileSync(path.join(dataDir, "mcp-event-subscriptions.json"), JSON.stringify([{
+      id: "sub-test",
+      owner: "test",
+      name: "homebound.weixin.message",
+      arguments: { source: "wechat.dm" },
+      url: "https://example.com/events",
+      secret: "test-secret",
+      refreshBefore: "2999-01-01T00:00:00.000Z",
+      active: true,
+    }]));
     const config = loadConfig({
       NODE_ENV: "test",
       DATA_DIR: dataDir,
@@ -49,7 +79,6 @@ describe("voice turns over the established Work event channel", () => {
     expect(event?.visibleText).toContain("爸爸，听得见吗？");
     const read = service.readEvent(event!.id);
     expect(read).toMatchObject({ found: true, completed: false });
-
     const delivered = await service.reply(event!.id, ["听得见，宝宝。"]);
     expect(delivered).toMatchObject({ route: "voice.call", completed: true });
     await expect(pending).resolves.toMatchObject({ reply: "听得见，宝宝。" });

@@ -81,7 +81,9 @@ export class WechatBridgeService {
     if (this.queue.enqueue(event)) {
       this.options.logger.info({ eventId, target }, "queued inbound WeChat message");
       void this.options.commands.showTyping(target);
-      await this.watchdog.tick();
+      // Enqueue synchronously, but never block WeChat's receive loop on
+      // the remote Work webhook. The watchdog owns retries and serialization.
+      void this.watchdog.tick();
     }
   }
 
@@ -92,6 +94,7 @@ export class WechatBridgeService {
     if (reservation.state === "completed") return { found: true, completed: true, event: reservation.event };
     if (reservation.state === "reserved") {
       this.queue.markDelivered(eventId);
+      this.options.logger.info({ eventId, receiveToReadMs: Math.max(0, Date.now() - Date.parse(reservation.event.createdAt)) }, "Work read inbound message");
       void this.options.commands.showTyping(reservation.event.target);
     }
     return { found: true, completed: false, event: reservation.event, deliveryAttempt: this.queue.getDeliveryAttempt(eventId) };
@@ -129,6 +132,7 @@ export class WechatBridgeService {
         });
         if (result.status !== "SENT") throw new Error(`WeChat send status: ${result.status}`);
         this.queue.markReplyMessageSent(eventId, fingerprint);
+        this.options.logger.info({ eventId, bubbleIndex: index, receiveToSendMs: Math.max(0, Date.now() - Date.parse(event.createdAt)), readToSendMs: Date.now() - (this.queue.getWakeReadAtMs(eventId) ?? Date.now()) }, "WeChat reply delivered");
       }
       this.queue.markReplyCompleted(eventId, fingerprint);
       void this.watchdog.tick();
@@ -137,6 +141,27 @@ export class WechatBridgeService {
       this.queue.releaseReply(eventId, fingerprint);
       throw error;
     }
+  }
+
+  async sendProactive(messages: string[], idempotencyKey: string) {
+    const target = this.options.config.allowedTargets[0];
+    if (!target) throw new Error("No private WeChat target is configured.");
+    const normalized = messages.map((message) => message.trim()).filter(Boolean);
+    const principal: Principal = {
+      id: "homebound-mcp-events-proactive",
+      scopes: new Set(["mcp:read", "mcp:send"]),
+      targets: new Set([target]),
+      authType: "none",
+    };
+    for (let index = 0; index < normalized.length; index += 1) {
+      const result = await this.options.commands.sendText(principal, crypto.randomUUID(), {
+        target,
+        text: normalized[index]!,
+        idempotencyKey: `proactive-${crypto.createHash("sha256").update(idempotencyKey).digest("hex")}-${index}`,
+      });
+      if (result.status !== "SENT") throw new Error(`WeChat send status: ${result.status}`);
+    }
+    return { ok: true, route: "wechat.dm", sentCount: normalized.length, completed: true };
   }
 
   async requestVoiceTurn(input: Omit<VoiceTurn, "id" | "createdAt">) {
