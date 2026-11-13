@@ -11,6 +11,8 @@ import { parseRateLimit, SlidingWindowRateLimiter } from "./security/rate-limit.
 import { BootstrapDiscovery } from "./application/bootstrap-discovery.js";
 import { WechatBridgeService } from "./bridge/service.js";
 import { McpEventsAdapter } from "./bridge/mcp-events-adapter.js";
+import { CompanionWake } from "./bridge/companion-wake.js";
+import path from "node:path";
 
 const config = loadConfig();
 const logger = createLogger(config);
@@ -28,7 +30,10 @@ const commands = new MessageCommandService({ config, client: runtime.client, tar
 const qr = new QrLoginService(config, runtime.client, (credential) => runtime.applyCredential(credential));
 const mcp = new McpServerAdapter({ config, status: runtime.status, targets: runtime.targets, commands });
 bridge = new WechatBridgeService({ config, commands, targets: runtime.targets, logger });
-const eventsMcp = new McpEventsAdapter(bridge);
+await bridge.ready;
+const companionWake = new CompanionWake(path.join(config.dataDir, "companion-wake.json"), bridge.events);
+await companionWake.start();
+const eventsMcp = new McpEventsAdapter(bridge, companionWake);
 const app = buildHttpServer({ config, logger, runtime, commands, mcp, qr, bootstrap, bridge, eventsMcp });
 
 await runtime.start();
@@ -39,6 +44,7 @@ let stopping = false;
 async function shutdown(signal: string): Promise<void> {
   if (stopping) return;
   stopping = true;
+  companionWake.stop();
   logger.info({ signal }, "gateway shutting down");
   try { bridge?.stop(); queue.stopAccepting(); await app.close(); await runtime.stopPoller(); await queue.drain(); await runtime.notifyStop(); runtime.finishStop(); } finally { process.exitCode = 0; }
 }

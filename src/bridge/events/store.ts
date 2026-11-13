@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 export type Subscription = {
   id: string;
   owner: string;
-  name: "homebound.weixin.message" | "homebound.voice.turn";
-  arguments: { source: "wechat.dm" | "voice.call" };
+  name: "homebound.weixin.message" | "homebound.voice.turn" | "homebound.wake";
+  arguments: { source: "wechat.dm" | "voice.call" | "companion.wake" };
   url: string;
   secret: string;
   previousSecret?: string;
@@ -53,7 +53,7 @@ export class EventsStore {
   private loadValues(values: Subscription[]): void {
     const now = new Date().toISOString();
     for (const value of values) {
-      if (["homebound.weixin.message", "homebound.voice.turn"].includes(value.name) && value.refreshBefore > now) {
+      if (["homebound.weixin.message", "homebound.voice.turn", "homebound.wake"].includes(value.name) && value.refreshBefore > now) {
         this.subscriptions.set(value.id, value);
       }
     }

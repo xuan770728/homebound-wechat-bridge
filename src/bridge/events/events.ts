@@ -71,6 +71,12 @@ export const eventCatalog = [{
     required: ["bridgeEventId", "source", "callId", "createdAt"],
     additionalProperties: false,
   },
+}, {
+  name: "homebound.wake",
+  description: "A companion wake is due. Read data.note as context, reply directly in this Work chat, and optionally schedule the next wake. No WeChat reply is required.",
+  delivery: ["webhook"],
+  inputSchema: { type: "object", properties: { source: { type: "string", enum: ["companion.wake"] } }, required: ["source"], additionalProperties: false },
+  payloadSchema: { type: "object", properties: { source: { type: "string" }, wakeId: { type: "string" }, note: { type: "string" }, createdAt: { type: "string" } }, required: ["source", "wakeId", "note", "createdAt"], additionalProperties: false },
 }];
 
 type SubscribeParams = {
@@ -82,8 +88,8 @@ type SubscribeParams = {
 };
 
 type Identity = {
-  name: "homebound.weixin.message" | "homebound.voice.turn";
-  arguments: { source: "wechat.dm" | "voice.call" };
+  name: Subscription["name"];
+  arguments: Subscription["arguments"];
   url: string;
 };
 
@@ -96,7 +102,7 @@ function canonicalJson(value: unknown): string {
 }
 
 function parseIdentity(params: SubscribeParams): Identity {
-  if (params.name !== "homebound.weixin.message" && params.name !== "homebound.voice.turn") {
+  if (params.name !== "homebound.weixin.message" && params.name !== "homebound.voice.turn" && params.name !== "homebound.wake") {
     throw new EventsError("The event name is not valid.");
   }
   if (params.delivery?.mode !== "webhook" || typeof params.delivery.url !== "string") {
@@ -109,12 +115,12 @@ function parseIdentity(params: SubscribeParams): Identity {
     || typeof args !== "object"
     || Array.isArray(args)
     || Object.keys(args).length !== 1
-    || !["wechat.dm", "voice.call"].includes(String((args as Record<string, unknown>).source))
+    || !["wechat.dm", "voice.call", "companion.wake"].includes(String((args as Record<string, unknown>).source))
   ) {
     throw new EventsError("The bridge event source is not valid.");
   }
 
-  const expectedSource = params.name === "homebound.weixin.message" ? "wechat.dm" : "voice.call";
+  const expectedSource = params.name === "homebound.weixin.message" ? "wechat.dm" : params.name === "homebound.voice.turn" ? "voice.call" : "companion.wake";
   if ((args as Record<string, unknown>).source !== expectedSource) throw new EventsError(`The bridge event requires source=${expectedSource}.`);
 
   return {
@@ -347,10 +353,14 @@ export class EventsService {
     return await this.deliver(event, matches);
   }
 
+  async emitCompanionWake(id: string, note: string) {
+    return this.deliver({ eventId: `evt_wake_${id}`, name: "homebound.wake", timestamp: new Date().toISOString(), data: { wakeId: id, source: "companion.wake", note, createdAt: new Date().toISOString() }, cursor: null }, this.store.all().filter(item => item.active && item.refreshBefore > new Date().toISOString() && item.name === "homebound.wake"));
+  }
+
   private async deliver(
     event: {
       eventId: string;
-      name: "homebound.weixin.message" | "homebound.voice.turn";
+      name: Subscription["name"];
       timestamp: string;
       data: Record<string, unknown>;
       cursor: null;
